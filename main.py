@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import filedialog
 from tkinter import ttk
 import threading
-import fileFilterer
+from fileFilterer import backendFileProcessor
 
 #region Classes
 class Directories():
@@ -205,12 +205,23 @@ def validateInt(P) -> bool:
         return True
     return False
 
-def uiConstrainer():
+def uiBackendController():
     global retention_entry
     global retentionType
+    global grouping_entry
     global groupingValue
     global varStorage
+    global conversionRunning
     global runButton
+    global files_upload
+    global files_output
+    global radio_one
+    global radio_two
+    global radio_three
+    global radio_four
+    global backendFileProcessorThread
+    global terminationFlag
+
     while True:
         if len(retention_entry.get()) >= 3 and retentionType.get():
             if retention_entry.get() == '000':
@@ -225,12 +236,64 @@ def uiConstrainer():
         elif len(retention_entry.get()) >= 2 and retentionType.get():
             if retention_entry.get()[0] == '00':
                 retention_entry.delete(0,2)
-        if retention_entry.get() and (not int(retention_entry.get()) == 0) and groupingValue.get() and varStorage.inputs and varStorage.outputdir:
-            if str(runButton['state']) == 'disabled':
-                runButton.config(state=tk.NORMAL)
+        
+        if conversionRunning:
+            if str(runButton["text"]) == "Convert":
+                runButton.config(state=tk.DISABLED, text="            Converting...\nPress Again to Terminate")
+                files_upload.config(state=tk.DISABLED)
+                files_output.config(state=tk.DISABLED)
+                radio_one.config(state=tk.DISABLED)
+                radio_two.config(state=tk.DISABLED)
+                radio_three.config(state=tk.DISABLED)
+                radio_four.config(state=tk.DISABLED)
+                retention_entry.config(state=tk.DISABLED)
+                grouping_entry.config(state=tk.DISABLED)
+
+            time.sleep(0.25)
+            runButton.config(state=tk.NORMAL, command=stopThread)
+
+            while not terminationFlag.is_set() and backendFileProcessorThread.is_alive():
+                    runButton.config(text = '            Converting   \nPress Again to Terminate')
+                    time.sleep(0.3)
+                    runButton.config(text = '            Converting.  \nPress Again to Terminate')
+                    time.sleep(0.15)
+                    runButton.config(text = '            Converting.. \nPress Again to Terminate')
+                    time.sleep(0.15)
+                    runButton.config(text = '            Converting...\nPress Again to Terminate')
+                    time.sleep(0.25)
+            
+            runButton.config(state=tk.DISABLED)
+
+            while backendFileProcessorThread.is_alive():
+                    runButton.config(text = 'Canceling   ')
+                    time.sleep(0.3)
+                    runButton.config(text = 'Canceling.  ')
+                    time.sleep(0.15)
+                    runButton.config(text = 'Canceling.. ')
+                    time.sleep(0.15)
+                    runButton.config(text = 'Canceling...')
+                    time.sleep(0.25)
+            conversionRunning = False
+            terminationFlag.clear()
+
         else:
-            if str(runButton['state']) == "normal":
-                runButton.config(state=tk.DISABLED)
+            if not str(runButton["text"]) == 'Convert':
+                runButton.config(text="Convert", state=tk.NORMAL, command=convertFiles)
+                files_upload.config(state=tk.NORMAL)
+                files_output.config(state=tk.NORMAL)
+                radio_one.config(state=tk.NORMAL)
+                radio_two.config(state=tk.NORMAL)
+                radio_three.config(state=tk.NORMAL)
+                radio_four.config(state=tk.NORMAL)
+                retention_entry.config(state=tk.NORMAL)
+                grouping_entry.config(state=tk.NORMAL)
+
+            if retention_entry.get() and (not int(retention_entry.get()) == 0) and groupingValue.get() and varStorage.inputs and varStorage.outputdir:
+                if str(runButton['state']) == 'disabled':
+                    runButton.config(state=tk.NORMAL)
+            else:
+                if str(runButton['state']) == "normal":
+                    runButton.config(state=tk.DISABLED)
         
 
         time.sleep(0.001)
@@ -241,44 +304,41 @@ def convertFiles():
     global groupingValue
     global retentionType
     global retentionValue
+    global conversionRunning  
+    global backendFileProcessorThread
 
-    fileFilterer.extract_frames(varStorage.inputs, varStorage.outputdir)
+    conversionRunning = True
     if groupingType.get():
         scalar = int(groupingValue.get())
         groups = None
     else:
         groups = int(groupingValue.get())
         scalar = None
-    print(int(retentionValue.get()))
-    fileFilterer.filterImages(varStorage.outputdir,retentionType.get(), int(retentionValue.get()), groups, scalar)
+    backendFileProcessorThread = threading.Thread(target=lambda:(backendFileProcessor(varStorage.inputs, varStorage.outputdir, retentionType.get(), 
+        int(retentionValue.get()), terminationFlag, groups, scalar)))
+    backendFileProcessorThread.daemon = True
+    backendFileProcessorThread.start()
+
+def stopThread():
+    global terminationFlag
+    terminationFlag.set()
 #endregion
 
 #region Window Settup
-"""
-
-root => main window
-"""
-
+"""root => main window"""
 root = tk.Tk()
-
 root.title("Video to Image Dataset Converter")
-
 root.resizable(False, False)
-"""
 
-mainframe =>  tkinter frame that holds all the other components
-"""
-
+"""mainframe =>  tkinter frame that holds all the other components"""
 mainframe = ttk.Frame(root, padding=(3, 3, 12, 12))
-
 mainframe.pack(expand=True, fill="none", anchor="center")
-"""
 
-varStorage => Object that holds all the directories for the selected files
-"""
-
+"""varStorage => Object that holds all the directories for the selected files"""
 varStorage = Directories()
 
+"""conversionRunning => Used to comunicate between the frontend and the backend that the conversion is currently running"""
+conversionRunning = False
 #endregion
 
 #region Upload Video(s)
@@ -286,7 +346,8 @@ varStorage = Directories()
 Button to open the file prompt for the videos
 """
 
-files_upload = tk.Button(mainframe, text='Select File(s)', command=select_files, width=13).grid(column=1, row=2, padx=10, pady=10)
+files_upload = tk.Button(mainframe, text='Select File(s)', command=select_files, width=13)
+files_upload.grid(column=1, row=2, padx=10, pady=10)
 
 """
 Scrollable sub-window to display all the uploaded videos
@@ -347,11 +408,13 @@ validateIntcmd = root.register(validateInt), '%P'
 retentionType = tk.BooleanVar(root, True)
 retentionValue = tk.StringVar(root, '50')
 
-tk.Radiobutton(cullingsettings, text = "Percentage", variable = retentionType,
-    value = True, font=("TkDefaultFont", 10)).grid(column = 0, row = 0, sticky = (tk.W))
+radio_one = tk.Radiobutton(cullingsettings, text = "Percentage", variable = retentionType,
+    value = True, font=("TkDefaultFont", 10))
+radio_one.grid(column = 0, row = 0, sticky = (tk.W))
 
-tk.Radiobutton(cullingsettings, text = "Count", variable = retentionType,
-    value = False, font=("TkDefaultFont", 10)).grid(column = 1, row = 0, sticky = (tk.W))
+radio_two = tk.Radiobutton(cullingsettings, text = "Count", variable = retentionType,
+    value = False, font=("TkDefaultFont", 10))
+radio_two.grid(column = 1, row = 0, sticky = (tk.W))
 
 retention_entry = tk.Entry(cullingsettings, textvariable = retentionValue, validate = "key", validatecommand = validatePercentcmd)
 retention_entry.grid(column = 2, row = 0, sticky = (tk.W), padx = 10)
@@ -360,14 +423,14 @@ retention_entry.grid(column = 2, row = 0, sticky = (tk.W), padx = 10)
 groupingType = tk.BooleanVar(root, True) 
 groupingValue = tk.StringVar(root, "6")
 
-tk.Radiobutton(cullingsettings, text = "Scalar", variable = groupingType, 
+radio_three = tk.Radiobutton(cullingsettings, text = "Scalar", variable = groupingType, value = True, font=("TkDefaultFont", 10))
+radio_three.grid(column=0, row=1, sticky=(tk.W))
 
-        value = True, font=("TkDefaultFont", 10)).grid(column=0, row=1, sticky=(tk.W))
-tk.Radiobutton(cullingsettings, text = "Groups", variable = groupingType, 
+radio_four = tk.Radiobutton(cullingsettings, text = "Groups", variable = groupingType, value = False, font=("TkDefaultFont", 10))
+radio_four.grid(column=1, row=1, sticky=(tk.W))
 
-        value = False, font=("TkDefaultFont", 10)).grid(column=1, row=1, sticky=(tk.W))
-
-tk.Entry(cullingsettings, textvariable = groupingValue, validate="key", validatecommand=validateIntcmd).grid(column=2, row=1, sticky=(tk.W), padx=10)
+grouping_entry = tk.Entry(cullingsettings, textvariable = groupingValue, validate="key", validatecommand=validateIntcmd)
+grouping_entry.grid(column=2, row=1, sticky=(tk.W), padx=10)
 #endregion
 
 #region Process Button
@@ -375,11 +438,12 @@ runButton = ttk.Button(bottomButtons, text = 'Convert', command=convertFiles, wi
 runButton.config(state=tk.DISABLED)
 runButton.grid(column=1, row=0, sticky=(tk.NS))
 #endregion
+#endregion
 
-
-thread = threading.Thread(target=uiConstrainer)
+thread = threading.Thread(target=uiBackendController)
 thread.daemon = True
 thread.start()
-#endregion
+
+terminationFlag = threading.Event()
 
 root.mainloop()
