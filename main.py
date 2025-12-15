@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import filedialog
 from tkinter import ttk
 import threading
-from fileFilterer import backendFileProcessor
+from backend import backendFileProcessor
 
 #region Classes
 class Directories():
@@ -177,7 +177,6 @@ def setinput_str(file_path_tupple):
     
 def setoutput_str(directory_path):
     """
-
     Sets the text in the GUI to display the output path
     """
     if directory_path:
@@ -191,7 +190,7 @@ def setoutput_str(directory_path):
 
         ttk.Label(outputList, text=directory_path).pack()
 
-        outputList.grid(sticky=(tk.NE))
+        outputList.grid(sticky=(tk.NW))
 
 def validatePercent(P) -> bool:
     global retentionType
@@ -205,6 +204,7 @@ def validateInt(P) -> bool:
     return False
 
 def uiBackendController():
+    #region Global Var Imports
     global retention_entry
     global retentionType
     global grouping_entry
@@ -220,33 +220,37 @@ def uiBackendController():
     global radio_four
     global backendFileProcessorThread
     global terminationFlag
+    global metashape_toggle
+    global metashape_toggle_var
+    #endregion
+
+    lockable_items = [files_upload, files_output, radio_one, radio_two, radio_three, radio_four, retention_entry, grouping_entry, metashape_toggle]
 
     while True:
-        if len(retention_entry.get()) >= 3 and retentionType.get():
-            if retention_entry.get() == '000':
-                retention_entry.delete(0,3)
-            elif retention_entry.get()[0:2] == '00':
+        entry = retention_entry.get() #prevents an out of bounds crash if the user changes the lenght of the value inbetween the length if chain and its body if chains 
+        if len(entry) >= 3 and retentionType.get():
+            if entry == '000' and entry == retention_entry.get():
                 retention_entry.delete(0,2)
-            elif retention_entry.get()[0] == '0':
+            elif entry[0:2] == '00' and entry == retention_entry.get():
+                retention_entry.delete(0,2)
+            elif entry[0] == '0' and entry == retention_entry.get():
                 retention_entry.delete(0,1)
-            elif not retention_entry.get() == "100":
+            elif not entry == "100" and entry == retention_entry.get():
                 retention_entry.delete(0,tk.END)
                 retention_entry.insert(0, '100')
-        elif len(retention_entry.get()) >= 2 and retentionType.get():
-            if retention_entry.get()[0] == '00':
-                retention_entry.delete(0,2)
+        elif len(entry) >= 2 and retentionType.get():
+            if entry[0] == '0' and entry == retention_entry.get():
+                retention_entry.delete(0,1)
         
         if conversionRunning:
             if str(runButton["text"]) == "Convert":
+                
                 runButton.config(state=tk.DISABLED, text="            Converting...\nPress Again to Terminate")
-                files_upload.config(state=tk.DISABLED)
-                files_output.config(state=tk.DISABLED)
-                radio_one.config(state=tk.DISABLED)
-                radio_two.config(state=tk.DISABLED)
-                radio_three.config(state=tk.DISABLED)
-                radio_four.config(state=tk.DISABLED)
-                retention_entry.config(state=tk.DISABLED)
-                grouping_entry.config(state=tk.DISABLED)
+                
+                for item in lockable_items:
+                    item.config(state=tk.DISABLED)
+                
+                
 
             time.sleep(0.25)
             runButton.config(state=tk.NORMAL, command=stopThread)
@@ -274,27 +278,25 @@ def uiBackendController():
                     time.sleep(0.25)
             conversionRunning = False
             terminationFlag.clear()
-
         else:
             if not str(runButton["text"]) == 'Convert':
                 runButton.config(text="Convert", state=tk.NORMAL, command=convertFiles)
-                files_upload.config(state=tk.NORMAL)
-                files_output.config(state=tk.NORMAL)
-                radio_one.config(state=tk.NORMAL)
-                radio_two.config(state=tk.NORMAL)
-                radio_three.config(state=tk.NORMAL)
-                radio_four.config(state=tk.NORMAL)
-                retention_entry.config(state=tk.NORMAL)
-                grouping_entry.config(state=tk.NORMAL)
 
-            if retention_entry.get() and (not int(retention_entry.get()) == 0) and groupingValue.get() and varStorage.inputs and varStorage.outputdir:
+                for item in lockable_items:
+                    item.config(state=tk.NORMAL)
+
+
+            if retention_entry.get() and (not int(entry) == 0) and groupingValue.get() and varStorage.inputs and varStorage.outputdir:
                 if str(runButton['state']) == 'disabled':
                     runButton.config(state=tk.NORMAL)
             else:
                 if str(runButton['state']) == "normal":
                     runButton.config(state=tk.DISABLED)
         
-
+        if metashape_toggle_var.get() and not metashape_settings_frame.winfo_manager():
+            metashape_settings_frame.grid(column=0, row=9, columnspan=3, sticky=(tk.NSEW))
+        elif not metashape_toggle_var.get():
+            metashape_settings_frame.grid_forget()
         time.sleep(0.001)
 
 def convertFiles():
@@ -305,6 +307,7 @@ def convertFiles():
     global retentionValue
     global conversionRunning  
     global backendFileProcessorThread
+    global metashape_toggle_var
 
     conversionRunning = True
     if groupingType.get():
@@ -314,7 +317,7 @@ def convertFiles():
         groups = int(groupingValue.get())
         scalar = None
     backendFileProcessorThread = threading.Thread(target=lambda:(backendFileProcessor(varStorage.inputs, varStorage.outputdir, retentionType.get(), 
-        int(retentionValue.get()), terminationFlag, groups, scalar)))
+        int(retentionValue.get()), terminationFlag, groups, scalar, metashape_toggle_var.get(), )))
     backendFileProcessorThread.daemon = True
     backendFileProcessorThread.start()
 
@@ -438,6 +441,27 @@ runButton.config(state=tk.DISABLED)
 runButton.grid(column=1, row=0, sticky=(tk.NS))
 #endregion
 #endregion
+
+#region Metashape Runner
+metashape_title_frame = ttk.Frame(mainframe)
+metashape_title_frame.grid(column=0, row=7, columnspan=3, sticky=(tk.NW))
+
+metashape_title = ttk.Label(metashape_title_frame, text=f"Autorun Metashape? ", font=("Arial", 12))
+metashape_title.grid(column=0, row=0, sticky=(tk.NW))
+
+metashape_toggle_var = tk.BooleanVar(value=True)
+metashape_toggle = ttk.Checkbutton(metashape_title_frame, variable=metashape_toggle_var)
+metashape_toggle.grid(column=1, row=0, sticky=(tk.NW))
+
+metashape_settings_frame = ttk.Frame(mainframe)
+metashape_filename_title = ttk.Label(metashape_settings_frame, text=f"Filename: ", font=("Arial", 10))
+metashape_filename_title.grid(column=0, row=1, sticky=(tk.NW))
+
+filenameValue = tk.StringVar(root, '')
+metashape_filename_entry = ttk.Entry(metashape_settings_frame, textvariable = filenameValue)
+metashape_filename_entry.grid(column=1, row=1, sticky=(tk.NW))
+#endregion
+
 
 thread = threading.Thread(target=uiBackendController)
 thread.daemon = True
